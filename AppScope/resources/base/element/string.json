@@ -1,0 +1,12 @@
+{
+  "string": [
+    {
+      "name": "app_name",
+      "value": "老司机"
+    },
+    {
+      "name": "app_description",
+      "value": "基于手机传感器的驾驶舒适度实时检测"
+    }
+  ]
+}

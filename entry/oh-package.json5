@@ -1,0 +1,9 @@
+{
+  "name": "entry",
+  "version": "1.0.0",
+  "description": "是不是老司机 - 驾驶舒适度检测入口模块",
+  "main": "",
+  "author": "",
+  "license": "",
+  "dependencies": {}
+}

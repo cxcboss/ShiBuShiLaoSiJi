@@ -1,0 +1,40 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "老司机 - 驾驶舒适度检测"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "老司机 - 驾驶舒适度检测"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "老司机"
+    },
+    {
+      "name": "reason_background",
+      "value": "用于锁屏后持续检测驾驶平稳度"
+    },
+    {
+      "name": "reason_accelerometer",
+      "value": "用于检测急加速、急减速、急转向等驾驶行为"
+    },
+    {
+      "name": "reason_gyroscope",
+      "value": "用于辅助判断手机姿态，提高检测准确性"
+    },
+    {
+      "name": "reason_location",
+      "value": "用于记录行驶距离并绘制行驶轨迹"
+    },
+    {
+      "name": "reason_location_background",
+      "value": "用于锁屏后仍能记录行驶距离与轨迹"
+    },
+    {
+      "name": "reason_vibrate",
+      "value": "用于检测到不良驾驶事件时振动提醒"
+    }
+  ]
+}

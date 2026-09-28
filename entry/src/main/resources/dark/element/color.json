@@ -1,0 +1,60 @@
+{
+  "color": [
+    {
+      "name": "start_window_background",
+      "value": "#181A1F"
+    },
+    {
+      "name": "font_primary",
+      "value": "#F0F1F3"
+    },
+    {
+      "name": "font_secondary",
+      "value": "#B5B8BE"
+    },
+    {
+      "name": "font_tertiary",
+      "value": "#9AA0A8"
+    },
+    {
+      "name": "font_quaternary",
+      "value": "#7E848C"
+    },
+    {
+      "name": "page_bg",
+      "value": "#181A1F"
+    },
+    {
+      "name": "card_bg",
+      "value": "#23262C"
+    },
+    {
+      "name": "card_bg_light",
+      "value": "#1F2227"
+    },
+    {
+      "name": "score_card_bg",
+      "value": "#21252B"
+    },
+    {
+      "name": "chip_bg",
+      "value": "#1AFFFFFF"
+    },
+    {
+      "name": "divider_color",
+      "value": "#33363C"
+    },
+    {
+      "name": "track_bg",
+      "value": "#33363C"
+    },
+    {
+      "name": "line_bg",
+      "value": "#3A3D43"
+    },
+    {
+      "name": "tab_bar_mask",
+      "value": "#66000000"
+    }
+  ]
+}

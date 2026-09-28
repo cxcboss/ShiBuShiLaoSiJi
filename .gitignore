@@ -1,0 +1,35 @@
+# Build outputs
+/node_modules
+/oh_modules
+/local.properties
+**/build
+.cxx
+**/.preview
+/.hvigor
+
+# IDE / editor
+/.idea
+/.clangd
+/.clang-format
+/.clang-tidy
+**/.test
+
+# DevEco / analysis tools
+/.appanalyzer
+
+# AI assistant tool configs (local)
+/.mcp.json
+/.cursor
+/.codex
+/.codebuddy
+/.trae
+/.opencode
+/.mimosa
+/.v2c
+/.video_agent
+
+# macOS
+.DS_Store
+
+# Local attachments
+*.zip
