@@ -40,6 +40,8 @@ export class LocationTracker {
   private path: GpsPoint[] = [];
   private speedKmh: number = 0;
   private onUpdateCb: ((pt: GpsPoint) => void) | undefined = undefined;
+  /** 里程/轨迹冻结（握持自动暂停期间）：GPS 回调仍更新基准点，但不累计距离、不入轨迹 */
+  private frozen: boolean = false;
   private callback: (location: geoLocationManager.Location) => void = () => {
   };
 
@@ -49,6 +51,11 @@ export class LocationTracker {
 
   setOnUpdate(cb: (pt: GpsPoint) => void): void {
     this.onUpdateCb = cb;
+  }
+
+  /** 冻结/恢复里程与轨迹累计（握持自动暂停用）：冻结期 GPS 点仍刷新基准，恢复后从新基准继续 */
+  setFrozen(frozen: boolean): void {
+    this.frozen = frozen;
   }
 
   getDistance(): number {
@@ -160,7 +167,8 @@ export class LocationTracker {
   }
 
   private pushPoint(pt: GpsPoint): void {
-    if (this.last !== undefined) {
+    // 冻结期只刷新基准点：暂停（握持）期间的漂移位移不得计入里程与轨迹
+    if (this.last !== undefined && !this.frozen) {
       const d: number = GeoUtil.distanceM(this.last.lat, this.last.lng, pt.lat, pt.lng);
       if (d > MIN_ADD_M) {
         // 位移可采信上限 = 两次定位车速的较大者 × 时间差。
@@ -177,8 +185,8 @@ export class LocationTracker {
     }
     this.last = pt;
     // 抽稀：与上一个记录点距离 ≥10m 才入轨迹
-    if (this.lastRecorded === undefined ||
-      GeoUtil.distanceM(this.lastRecorded.lat, this.lastRecorded.lng, pt.lat, pt.lng) >= MIN_SPACING_M) {
+    if (!this.frozen && (this.lastRecorded === undefined ||
+      GeoUtil.distanceM(this.lastRecorded.lat, this.lastRecorded.lng, pt.lat, pt.lng) >= MIN_SPACING_M)) {
       this.path.push(pt);
       this.lastRecorded = pt;
       if (this.path.length > MAX_PATH_POINTS) {

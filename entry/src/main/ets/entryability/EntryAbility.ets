@@ -21,7 +21,10 @@ export default class EntryAbility extends UIAbility {
     hilog.info(DOMAIN, TAG, '%{public}s', 'Ability onCreate');
 
     // 调试钩子（仅 debug 构建）：--pb autoStart true --pi autoStopMs 15000
-    if (BUILD_MODE_NAME === 'debug') {
+    // 赋给 string 中转一次：release 构建下 BUILD_MODE_NAME 被收窄为字面量 'release'，
+    // 直接与 'debug' 比较会触发 TS2367 编译错误。
+    const buildModeName: string = BUILD_MODE_NAME;
+    if (buildModeName === 'debug') {
       const params: ESObject = want.parameters;
       if (params !== undefined) {
         if (params['autoStart'] === true || params['autoStart'] === 'true') {
@@ -72,6 +75,7 @@ export default class EntryAbility extends UIAbility {
       hilog.warn(DOMAIN, TAG, 'set immersive layout failed: %{public}s', JSON.stringify(e));
     }
     this.watchBottomInset();
+    this.watchTopInset();
     windowStage.loadContent('pages/Index', (err) => {
       if (err.code) {
         hilog.error(DOMAIN, TAG, 'Failed to load the content. Cause: %{public}s', JSON.stringify(err));
@@ -101,7 +105,21 @@ export default class EntryAbility extends UIAbility {
       };
       win.on('avoidAreaChange', this.avoidAreaCb);
     } catch (e) {
-      hilog.warn(DOMAIN, TAG, 'watchBottomInset failed: %{public}s', JSON.stringify(e));
+      hilog.warn(0x0000, TAG, 'watchBottomInset failed: %{public}s', JSON.stringify(e));
+    }
+  }
+
+  /** 状态栏高度写入 ThemeState：滚动内容穿透顶部时用它撑出首条净空 */
+  private watchTopInset(): void {
+    const win: window.Window | undefined = this.mainWindow;
+    if (win === undefined) {
+      return;
+    }
+    try {
+      ThemeState.getInstance().topInsetPx =
+        win.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM).topRect.height;
+    } catch (e) {
+      hilog.warn(0x0000, TAG, 'watchTopInset failed: %{public}s', JSON.stringify(e));
     }
   }
 

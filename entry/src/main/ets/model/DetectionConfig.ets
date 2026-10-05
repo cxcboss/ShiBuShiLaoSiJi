@@ -6,6 +6,8 @@
  * 其中 40 次「急加速 Lv10」——路面振动被当成了驾驶行为。
  * 数值参照：舒适加减速 1~1.5、明显 1.5~2.5、激烈 2.5~3.5、紧急 >3.5 m/s²。
  */
+import { DrivingEvent } from './DrivingEvent';
+
 export interface ThresholdTriple {
   level1: number;
   level2: number;
@@ -20,20 +22,13 @@ export interface SensitivityProfile {
 
 export type Sensitivity = 'mild' | 'moderate' | 'severe';
 
-/** 唯一文案来源，不对外导出：调用一律走 sensitivityLabel */
-const SENSITIVITY_LABELS: Map<Sensitivity, string> = new Map([
-  ['mild', '轻度'],
-  ['moderate', '中度'],
-  ['severe', '重度'],
-]);
-
 /**
- * 灵敏度中文名。此前 if 分支把三档文案又抄了一遍，与 SENSITIVITY_LABELS
- * 构成两份真值来源（改一处漏一处），且入参写成 string 丢掉了枚举约束。
+ * 全应用唯一灵敏度档位。
+ * 设置项已按用户要求移除：11 段真车实测全部在"轻度"下采集，
+ * 该档阈值（刹 1.8 / 加 1.7 / 转 1.6）与真实行车的噪声带匹配最好；
+ * 保留 moderate/severe 两档阈值仅供离线回放对照。
  */
-export function sensitivityLabel(s: Sensitivity): string {
-  return SENSITIVITY_LABELS.get(s) ?? '中度';
-}
+export const APP_SENSITIVITY: Sensitivity = 'mild';
 
 const PROFILE_MILD: SensitivityProfile = {
   brake: { level1: 1.8, level2: 2.8, level3: 4.0 },
@@ -278,26 +273,29 @@ export interface Reaction {
 const REACTION_ROAD: Reaction = { emoji: '🛣️', text: '路面的锅，不扣分' };
 const REACTION_REASSURE: Reaction = { emoji: '🛡️', text: '虚惊一场，不扣分' };
 
-/** 下标 0/1/2 依次对应 轻微(Lv1-3) / 一般(Lv4-6) / 严重(Lv7+) */
+/**
+ * 检测中的操作提示用直白表述：点名行为（急减速/急加速/急转弯/摇摆）再吐槽提醒，
+ * 让用户扫一眼就知道"刚才哪做得不对"；等级轻重只决定吐槽的狠度。
+ */
 const RE_BRAKE: Reaction[] = [
-  { emoji: '🙂', text: '刹得从容' },
-  { emoji: '😳', text: '乘客往前扑了一下' },
-  { emoji: '😱', text: '乘客咖啡差点洒了' },
+  { emoji: '🙂', text: '刹车挺从容' },
+  { emoji: '😳', text: '急减速，乘客往前冲' },
+  { emoji: '😱', text: '急刹太狠，咖啡都泼了' },
 ];
 const RE_ACCEL: Reaction[] = [
-  { emoji: '🙂', text: '起步顺滑' },
-  { emoji: '😮', text: '乘客抓住了扶手' },
-  { emoji: '🚀', text: '后背被按进座椅' },
+  { emoji: '🙂', text: '起步挺顺' },
+  { emoji: '😮', text: '急加速，乘客抓住扶手' },
+  { emoji: '🚀', text: '油门踩太深，后背贴座椅' },
 ];
 const RE_TURN: Reaction[] = [
-  { emoji: '😉', text: '变道干净利落' },
-  { emoji: '😵', text: '乘客脑瓜子嗡嗡的' },
-  { emoji: '🌀', text: '车门还关着吗' },
+  { emoji: '😉', text: '转弯利落' },
+  { emoji: '😵', text: '转弯不当，脑瓜嗡嗡的' },
+  { emoji: '🌀', text: '急转弯，还以为在漂移' },
 ];
 const RE_SWAY: Reaction[] = [
-  { emoji: '😐', text: '有点晃，乘客在忍' },
-  { emoji: '🥴', text: '乘客开始沉默了' },
-  { emoji: '😨', text: '让我先缓缓' },
+  { emoji: '😐', text: '有点摇摆，收着点' },
+  { emoji: '🥴', text: '频繁摇摆，乘客开始沉默' },
+  { emoji: '😨', text: '车开成船了，先缓缓' },
 ];
 const RE_BUMP: Reaction[] = [
   { emoji: '🛣️', text: '路面有点碎' },
@@ -330,9 +328,7 @@ export interface TipItem {
   key: string;
   title: string;
   content: string;
-}
-
-export const TIPS: TipItem[] = [
+}export const TIPS: TipItem[] = [
   {
     key: 'collect',
     title: '检测过程',
@@ -378,3 +374,96 @@ export const TIPS: TipItem[] = [
       + '低速工况（低于 5km/h 的手持、挪车、怠速）也一律豁免，豁免原因会在事件上标注。',
   },
 ];
+
+/** 给司机的建议：基于事件统计的规则引擎（端侧无免费文本总结模型，规则结果确定且离线可用） */
+export interface DriveAdvice {
+  icon: string;
+  title: string;
+  detail: string;
+}
+
+/** 单类行为的有效（非豁免）事件数 */
+export interface EventCounts {
+  brake: number;
+  accel: number;
+  turn: number;
+  sway: number;
+  total: number;
+}
+
+export function countEvents(events: DrivingEvent[]): EventCounts {
+  const c: EventCounts = { brake: 0, accel: 0, turn: 0, sway: 0, total: 0 };
+  for (const e of events) {
+    if (e.excluded) {
+      continue;
+    }
+    c.total++;
+    if (e.name === '急减速') {
+      c.brake++;
+    } else if (e.name === '急加速') {
+      c.accel++;
+    } else if (e.name === '急转向') {
+      c.turn++;
+    } else if (e.name === '摇摆') {
+      c.sway++;
+    }
+  }
+  return c;
+}
+
+/**
+ * 由有效事件密度生成改进建议：每公里阈值触发的类目各给一条，
+ * 按"每公里密度"从高到低排，最多 3 条；全程无事件给正面认证。
+ */
+export function adviceOf(events: DrivingEvent[], distanceM: number): DriveAdvice[] {
+  const c: EventCounts = countEvents(events);
+  const km: number = Math.max(distanceM / 1000, 1);
+  const advice: DriveAdvice[] = [];
+  if (c.total === 0) {
+    advice.push({
+      icon: '🏅',
+      title: '老司机认证',
+      detail: '全程没有惊动乘客一次，脚法稳如老狗，保持这个节奏。',
+    });
+    return advice;
+  }
+  // 密度 = 次数/公里，取每公里 ≥1.5 次的类目；都低于阈值时只给一条整体建议
+  const items: DriveAdvice[] = [];
+  if (c.brake / km >= 1.5) {
+    items.push({
+      icon: '🛑',
+      title: '刹车偏急',
+      detail: `本次急减速 ${c.brake} 次。看得远一点，提前松油门滑行减速，少踩重刹——乘客手里的咖啡会感谢你。`,
+    });
+  }
+  if (c.accel / km >= 1.5) {
+    items.push({
+      icon: '🚀',
+      title: '油门偏深',
+      detail: `本次急加速 ${c.accel} 次。起步和超车线性给油，把"推背感"留给赛道，后背舒服了口碑就来了。`,
+    });
+  }
+  if (c.turn / km >= 1.5) {
+    items.push({
+      icon: '🌀',
+      title: '转弯偏急',
+      detail: `本次急转向 ${c.turn} 次。进弯前先把速度降下来，方向少打快回，乘客就不会东倒西歪。`,
+    });
+  }
+  if (c.sway / km >= 1.5) {
+    items.push({
+      icon: '〰️',
+      title: '车道内画龙',
+      detail: `本次摇摆 ${c.sway} 次。视线放远方向自然稳，变道打灯一次到位，少来回修正。`,
+    });
+  }
+  const picked: DriveAdvice[] = items.slice(0, 3);
+  if (picked.length === 0) {
+    picked.push({
+      icon: '👍',
+      title: '整体平稳',
+      detail: `全程仅 ${c.total} 次急操，密度不高。复盘一下上面的明细，下次冲击满分。`,
+    });
+  }
+  return picked;
+}

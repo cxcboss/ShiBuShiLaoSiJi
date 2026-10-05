@@ -5,18 +5,16 @@ import { systemShare } from '@kit.ShareKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { DrivingReport } from '../model/DrivingReport';
 import { DrivingEvent } from '../model/DrivingEvent';
-import { EVENT_TYPES, sensitivityLabel } from '../model/DetectionConfig';
+import { EVENT_TYPES, adviceOf, DriveAdvice } from '../model/DetectionConfig';
 import { ScoreBreakdown } from '../service/ScoringEngine';
 import { PosterGenerator, PosterData, POSTER_W, POSTER_H } from '../service/PosterGenerator';
 import { TimeUtil } from '../util/TimeUtil';
 import { GlobalContext } from '../util/GlobalContext';
+import { TrackMapPage } from './TrackMapPage';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'ReportSheet';
 
-/** 轨迹画布逻辑尺寸（宽高比 1.7:1，宽度随屏幕自适应） */
-const W: number = 340;
-const H: number = 200;
 /** 海报缓存最长保留时间（秒）：cacheDir 不会即时回收，每次生成海报顺带清理更旧的 */
 const MAX_POSTER_AGE_SEC: number = 86400;
 /** 事件坐标是否有效 */
@@ -30,35 +28,6 @@ interface EventSummary {
   count: number;
   points: number;
   exemptCount: number;
-}
-
-/** LazyForEach 数据源：明细列表按需渲染，大量事件也不卡顿 */
-class EventDataSource implements IDataSource {
-  private listeners: DataChangeListener[] = [];
-  private data: DrivingEvent[];
-
-  constructor(events: DrivingEvent[]) {
-    this.data = events;
-  }
-
-  totalCount(): number {
-    return this.data.length;
-  }
-
-  getData(index: number): DrivingEvent {
-    return this.data[index];
-  }
-
-  registerDataChangeListener(listener: DataChangeListener): void {
-    this.listeners.push(listener);
-  }
-
-  unregisterDataChangeListener(listener: DataChangeListener): void {
-    const idx: number = this.listeners.indexOf(listener);
-    if (idx >= 0) {
-      this.listeners.splice(idx, 1);
-    }
-  }
 }
 
 /**
@@ -78,24 +47,24 @@ export struct ReportSheet {
   @Param onClose: () => void = () => {
   };
 
-  private settings: RenderingContextSettings = new RenderingContextSettings(true);
-  private ctx: CanvasRenderingContext2D = new CanvasRenderingContext2D(this.settings);
+  /** 海报画布仅 360x300 且只在分享时绘制；内嵌轨迹画布已移除（大数据行程滚动卡顿主因） */
   private posterSettings: RenderingContextSettings = new RenderingContextSettings(true);
   private posterCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(this.posterSettings);
 
   @Local sharing: boolean = false;
   @Local showAll: boolean = false;
   @Local summaries: EventSummary[] = [];
+  /** 给司机的建议：由事件统计规则生成 */
+  @Local advices: DriveAdvice[] = [];
+  /** 全屏轨迹地图开关（点击"行驶轨迹"入口行进入） */
+  @Local mapOpen: boolean = false;
   private isDarkMode: boolean = false;
-  private canvasW: number = W;
-  private canvasH: number = H;
-  private source: EventDataSource | undefined = undefined;
 
   aboutToAppear(): void {
     const ctx: common.UIAbilityContext = GlobalContext.getInstance().getContext();
     this.isDarkMode = ctx.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK;
     this.summaries = this.buildSummaries(this.report.events);
-    this.source = new EventDataSource(this.report.events);
+    this.advices = adviceOf(this.report.events, this.report.distanceM);
   }
 
   /** 按行为分类汇总：每种行为的总次数 / 有效扣分 / 豁免次数 */
@@ -181,6 +150,7 @@ export struct ReportSheet {
           .padding(0)
           .backgroundColor($r('app.color.chip_bg'))
           .borderRadius(22)
+          .clickEffect({ level: ClickEffectLevel.HEAVY, scale: 0.93 })
           // 按钮内仅有图标，读屏无文本可播报
           .accessibilityText('关闭报告')
           .onClick(() => this.onClose())
@@ -222,6 +192,7 @@ export struct ReportSheet {
           .padding({ left: 14, right: 14 })
           .backgroundColor('#140A59F7')
           .borderRadius(22)
+          .clickEffect({ level: ClickEffectLevel.HEAVY, scale: 0.93 })
           .enabled(!this.sharing)
           .onClick(() => this.sharePoster())
         }
@@ -255,61 +226,90 @@ export struct ReportSheet {
           .backgroundColor($r('app.color.card_bg'))
           .borderRadius(16)
 
-          // ── 行程信息 ──
-          Row() {
-            Column({ space: 4 }) {
-              Text(this.report.date)
-                .fontSize(16)
-                .fontWeight(FontWeight.Medium)
-                .fontColor($r('app.color.font_primary'))
-              Text(`${this.startTimeText()} — ${this.endTimeText()}`)
-                .fontSize(12)
-                .fontColor($r('app.color.font_tertiary'))
+          // ── 行程概览：日期时段 + 时长/里程/事件三格（合并原两张卡，一眼看完行程事实）──
+          Column({ space: 12 }) {
+            Row() {
+              Column({ space: 4 }) {
+                Text(this.report.date)
+                  .fontSize(16)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor($r('app.color.font_primary'))
+                Text(`${this.startTimeText()} — ${this.endTimeText()}`)
+                  .fontSize(12)
+                  .fontColor($r('app.color.font_tertiary'))
+              }
+              .alignItems(HorizontalAlign.Start)
+              .layoutWeight(1)
+              // 用轨迹点数而非里程判断定位是否可用：怠速/挪车几分钟里程会是 0，
+              // 但定位回调一直在跑，此时标"无定位数据"是错的（真机已复现）。
+              Text(this.report.gpsPath.length > 0 ? '定位可用' : '无定位数据')
+                .fontSize(11)
+                .fontColor($r('app.color.font_quaternary'))
             }
-            .alignItems(HorizontalAlign.Start)
-            .layoutWeight(1)
-            // 用轨迹点数而非里程判断定位是否可用：怠速/挪车几分钟里程会是 0，
-            // 但定位回调一直在跑，此时标"无定位数据"是错的（真机已复现）。
-            Text(this.report.gpsPath.length > 0 ? '定位可用' : '无定位数据')
-              .fontSize(11)
-              .fontColor($r('app.color.font_quaternary'))
+            .width('100%')
+
+            Divider()
+              .color($r('app.color.divider_color'))
+
+            Row() {
+              this.statCell(TimeUtil.formatDuration(this.report.durationSec), '时长')
+              this.statCell((this.report.distanceM / 1000).toFixed(2) + ' km', '里程')
+              this.statCell(`${this.report.events.length}`, '事件')
+            }
+            .width('100%')
           }
           .width('100%')
-          .padding({ left: 16, right: 16, top: 12, bottom: 12 })
+          .padding(16)
           .backgroundColor($r('app.color.card_bg'))
           .borderRadius(16)
-
-          // ── 数据统计 ──
-          Row() {
-            this.statCell(TimeUtil.formatDuration(this.report.durationSec), '时长')
-            this.statCell((this.report.distanceM / 1000).toFixed(2) + ' km', '里程')
-            this.statCell(`${this.report.events.length}`, '事件')
-            this.statCell(sensitivityLabel(this.report.sensitivity), '灵敏度')
-          }
-          .width('100%')
 
           // ── 评分构成 ──
           this.breakdownCard(this.report.breakdown)
 
-          // ── 行驶轨迹 ──
+          // ── 给司机的建议 ──
+          this.adviceCard()
+
+          // ── 行驶轨迹入口：点击进入全屏地图（MapKit 真实地图 + 轨迹/事件标记）。
+          //    旧版内嵌轨迹 Canvas 在大数据行程下每帧重绘导致滚动卡顿，已移除。──
           if (this.report.gpsPath.length >= 2) {
-            Column({ space: 8 }) {
-              Text('行驶轨迹')
+            Row({ space: 12 }) {
+              SymbolGlyph($r('sys.symbol.map'))
+                .fontSize(22)
+                .fontColor(['#0A59F7'])
+                .accessibilityLevel('no')
+              Column({ space: 3 }) {
+                Text('行驶轨迹')
+                  .fontSize(16)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor($r('app.color.font_primary'))
+                Text(`点击查看地图 · ${this.report.gpsPath.length} 个点位`)
+                  .fontSize(12)
+                  .fontColor($r('app.color.font_tertiary'))
+              }
+              .alignItems(HorizontalAlign.Start)
+              .layoutWeight(1)
+
+              SymbolGlyph($r('sys.symbol.chevron_right'))
                 .fontSize(14)
-                .fontWeight(FontWeight.Medium)
-                .width('100%')
-              Canvas(this.ctx)
-                .width('100%')
-                .aspectRatio(W / H)
-                .onAreaChange((oldValue: Area, newValue: Area) => {
-                  this.canvasW = Number(newValue.width);
-                  this.canvasH = Number(newValue.height);
-                  this.drawTrajectory();
-                })
-                .onReady(() => this.drawTrajectory())
+                .fontColor([$r('app.color.font_quaternary')])
+                .accessibilityLevel('no')
             }
             .width('100%')
-            .alignItems(HorizontalAlign.Start)
+            .padding(16)
+            .backgroundColor($r('app.color.card_bg'))
+            .borderRadius(16)
+            .stateStyles({
+              normal: {
+                .opacity(1)
+              },
+              pressed: {
+                .opacity(0.75)
+              },
+            })
+            .animation({ duration: 150, curve: Curve.EaseOut })
+            .onClick(() => {
+              this.mapOpen = true;
+            })
           }
 
           // ── 事件汇总（默认）/ 明细（展开） ──
@@ -326,6 +326,7 @@ export struct ReportSheet {
                   .padding({ left: 10, right: 10, top: 4, bottom: 4 })
                   .backgroundColor('#140A59F7')
                   .borderRadius(10)
+                  .clickEffect({ level: ClickEffectLevel.HEAVY, scale: 0.94 })
                   .onClick(() => {
                     this.showAll = !this.showAll;
                   })
@@ -369,26 +370,13 @@ export struct ReportSheet {
                 }
                 .width('100%')
               } else {
-                // 明细：懒加载，大量事件不卡顿
-                List() {
-                  LazyForEach(this.source as EventDataSource, (e: DrivingEvent) => {
-                    ListItem() {
-                      this.detailRow(e)
-                    }
-                  }, (e: DrivingEvent) => `${e.time}-${e.name}-${e.level}-${e.excluded}`)
-                }
-                .width('100%')
-                .height(420)
-                // 与外层 Scroll 建立嵌套滚动链：内层默认 SELF_ONLY 会吞掉全部手势，
-                // 展开明细后外层将彻底滚不动（报告余下内容不可达）。
-                // 官方配方：内层 forward=PARENT_FIRST / backward=SELF_ONLY。
-                .nestedScroll({
-                  scrollForward: NestedScrollMode.PARENT_FIRST,
-                  scrollBackward: NestedScrollMode.SELF_ONLY,
-                })
-                .scrollBar(BarState.Auto)
-                .edgeEffect(EdgeEffect.Spring)
-                .divider({ strokeWidth: 1, color: $r('app.color.divider_color'), startMargin: 12, endMargin: 12 })
+                // 明细：普通 ForEach 随外层 Scroll 统一滚动。
+                // 旧版内嵌 List + LazyForEach 形成双层滚动链（手势在外层/内层间切换
+                // 还叠加双层 Spring 回弹），sheet 内实测上滑卡顿；明细本就是报告
+                // 最后一节，行结构简单（圆点+4 个文本），几百行一次性创建开销可忽略。
+                ForEach(this.report.events, (e: DrivingEvent) => {
+                  this.detailRow(e)
+                }, (e: DrivingEvent) => `${e.time}-${e.name}-${e.level}-${e.excluded}`)
               }
             }
             .width('100%')
@@ -411,11 +399,12 @@ export struct ReportSheet {
       }
       .layoutWeight(1)
       .scrollBar(BarState.Auto)
-      .edgeEffect(EdgeEffect.Spring)
+      // 弹性回弹：detents 已单档（无拖拽换档重排），Spring 不再引发卡顿
+      .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
+      // SELF_FIRST：内容滚到边界后手势交给 sheet——顶部继续下拉可关闭弹层，
+      // 否则下滑关闭手势只作用于 dragBar 一条缝，操作区过小
       .nestedScroll({
         scrollForward: NestedScrollMode.SELF_FIRST,
-        // 外层若为 PARENT_FIRST，上滑手势会被弹窗容器接管导致误关闭；
-        // 嵌套传导由内层 List 的 nestedScroll 负责。
         scrollBackward: NestedScrollMode.SELF_FIRST,
       })
       }
@@ -429,12 +418,83 @@ export struct ReportSheet {
     }
     .width('100%')
     .height('100%')
+    // 全屏轨迹地图（二级界面）：点击"行驶轨迹"进入，模态全覆盖报告弹窗
+    .bindContentCover(this.mapOpen, this.mapBuilder(), {
+      modalTransition: ModalTransition.DEFAULT,
+      onDisappear: () => {
+        this.mapOpen = false;
+      },
+    })
+  }
+
+  /** 全屏轨迹地图内容（外层必须包容器，直接返回自定义组件会导致弹层不显示） */
+  @Builder
+  mapBuilder() {
+    Column() {
+      TrackMapPage({
+        report: this.report,
+        onClose: () => {
+          this.mapOpen = false;
+        },
+      })
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  /**
+   * 给司机的建议卡：按有效事件密度生成的改进点（无事件给正面认证）。
+   * 端侧无免费文本总结模型（HMS 仅提供 NLP 实体抽取/语音/视觉），规则引擎
+   * 结果确定、离线可用，且文案与 App 的吐槽风格一致。
+   */
+  @Builder
+  adviceCard() {
+    Column({ space: 12 }) {
+      Row() {
+        Text('给司机的建议')
+          .fontSize(14)
+          .fontWeight(FontWeight.Medium)
+        Blank()
+        Text('按事件密度生成')
+          .fontSize(12)
+          .fontColor($r('app.color.font_tertiary'))
+      }
+      .width('100%')
+
+      ForEach(this.advices, (a: DriveAdvice) => {
+        Row({ space: 12 }) {
+          Text(a.icon)
+            .fontSize(24)
+          Column({ space: 3 }) {
+            Text(a.title)
+              .fontSize(15)
+              .fontWeight(FontWeight.Medium)
+              .fontColor($r('app.color.font_primary'))
+            Text(a.detail)
+              .fontSize(13)
+              .lineHeight(19)
+              .fontColor($r('app.color.font_secondary'))
+          }
+          .alignItems(HorizontalAlign.Start)
+          .layoutWeight(1)
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Top)
+        .padding(12)
+        .backgroundColor($r('app.color.chip_bg'))
+        .borderRadius(12)
+      }, (a: DriveAdvice) => a.title)
+    }
+    .width('100%')
+    .padding(16)
+    .backgroundColor($r('app.color.card_bg'))
+    .borderRadius(16)
+    .alignItems(HorizontalAlign.Start)
   }
 
   /** 明细行：时间 + 名称 + 等级 + 点数/豁免 */
   @Builder
-  detailRow(e: DrivingEvent) {
-    Row({ space: 10 }) {
+  detailRow(e: DrivingEvent) {    Row({ space: 10 }) {
       Circle()
         .width(8)
         .height(8)
@@ -681,95 +741,5 @@ export struct ReportSheet {
     } finally {
       this.sharing = false;
     }
-  }
-
-  /** 绘制地图风格轨迹：深浅色自适应底图 + 网格 + 轨迹线 + 起终点 + 事件点 */
-  private drawTrajectory(): void {
-    const path: Array<[number, number]> = this.report.gpsPath;
-    const c: CanvasRenderingContext2D = this.ctx;
-    const isDark: boolean = this.isDarkMode;
-    const mapBg: string = isDark ? '#20242B' : '#F2F5FA';
-    const mapGrid: string = isDark ? '#32373F' : '#E0E6EF';
-    const trailOutline: string = isDark ? '#2E343D' : '#FFFFFF';
-    c.clearRect(0, 0, this.canvasW, this.canvasH);
-
-    // 底图
-    c.fillStyle = mapBg;
-    c.fillRect(0, 0, this.canvasW, this.canvasH);
-    // 网格
-    c.strokeStyle = mapGrid;
-    c.lineWidth = 1;
-    for (let gx = 0; gx <= this.canvasW; gx += 40) {
-      c.beginPath();
-      c.moveTo(gx, 0);
-      c.lineTo(gx, this.canvasH);
-      c.stroke();
-    }
-    for (let gy = 0; gy <= this.canvasH; gy += 40) {
-      c.beginPath();
-      c.moveTo(0, gy);
-      c.lineTo(this.canvasW, gy);
-      c.stroke();
-    }
-
-    if (path.length < 2) {
-      return;
-    }
-    let minLat: number = 90;
-    let maxLat: number = -90;
-    let minLng: number = 180;
-    let maxLng: number = -180;
-    for (const p of path) {
-      if (p[1] < minLat) minLat = p[1];
-      if (p[1] > maxLat) maxLat = p[1];
-      if (p[0] < minLng) minLng = p[0];
-      if (p[0] > maxLng) maxLng = p[0];
-    }
-    const spanLng: number = Math.max(maxLng - minLng, 1e-6);
-    const spanLat: number = Math.max(maxLat - minLat, 1e-6);
-    const scale: number = Math.min((this.canvasW - 48) / spanLng, (this.canvasH - 48) / spanLat);
-    const ox: number = (this.canvasW - spanLng * scale) / 2;
-    const oy: number = (this.canvasH - spanLat * scale) / 2;
-    const px = (lng: number): number => ox + (lng - minLng) * scale;
-    const py = (lat: number): number => oy + (maxLat - lat) * scale;
-
-    // 轨迹（外层描边 + 蓝色）
-    c.beginPath();
-    c.moveTo(px(path[0][0]), py(path[0][1]));
-    for (let i = 1; i < path.length; i++) {
-      c.lineTo(px(path[i][0]), py(path[i][1]));
-    }
-    c.lineJoin = 'round';
-    c.lineCap = 'round';
-    c.strokeStyle = trailOutline;
-    c.lineWidth = 7;
-    c.stroke();
-    c.strokeStyle = '#0A59F7';
-    c.lineWidth = 4;
-    c.stroke();
-
-    // 起点 / 终点
-    this.dot(px(path[0][0]), py(path[0][1]), '#00C853');
-    this.dot(px(path[path.length - 1][0]), py(path[path.length - 1][1]), '#F44336');
-
-    // 事件标记
-    for (const e of this.report.events) {
-      if (hasPos(e)) {
-        this.dot(px(e.lng as number), py(e.lat as number), '#FF9800');
-      }
-    }
-  }
-
-  private dot(x: number, y: number, color: string): void {
-    const c: CanvasRenderingContext2D = this.ctx;
-    const isDark: boolean = this.isDarkMode;
-    c.beginPath();
-    c.arc(x, y, 6, 0, Math.PI * 2);
-    c.fillStyle = isDark ? '#2E343D' : '#FFFFFF';
-    c.fill();
-    c.beginPath();
-    c.arc(x, y, 4, 0, Math.PI * 2);
-    c.fillStyle = color;
-    c.fill();
   }
 }

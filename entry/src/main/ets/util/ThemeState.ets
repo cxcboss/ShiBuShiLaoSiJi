@@ -22,10 +22,17 @@ export class ThemeState {
   @Trace isDark: boolean = false;
   /** 底部导航条/三键栏高度（px），由 EntryAbility 随 avoidAreaChange 写入 */
   @Trace bottomInsetPx: number = 0;
+  /** 状态栏高度（px），由 EntryAbility 随 avoidAreaChange 写入 */
+  @Trace topInsetPx: number = 0;
 
   /** 底部避让高度（vp）：px→vp 需要 UIContext，故由调用方传入 */
   bottomInsetVp(ui: UIContext): number {
     return ui.px2vp(this.bottomInsetPx);
+  }
+
+  /** 状态栏避让高度（vp） */
+  topInsetVp(ui: UIContext): number {
+    return ui.px2vp(this.topInsetPx);
   }
 
   static getInstance(): ThemeState {

@@ -2,11 +2,11 @@ import { preferences } from '@kit.ArkData';
 import { common, ConfigurationConstant } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { GlobalContext } from '../util/GlobalContext';
-import { Sensitivity } from '../model/DetectionConfig';
 
 const STORE_NAME: string = 'settings';
-const KEY_SENSITIVITY: string = 'sensitivity';
 const KEY_THEME: string = 'theme';
+const KEY_HOLD_PAUSE: string = 'holdPause';
+const KEY_PRIVACY_AGREED: string = 'privacyAgreed';
 const DOMAIN: number = 0x0000;
 const TAG: string = 'SettingsRepository';
 
@@ -56,18 +56,6 @@ export class SettingsRepository {
     }
   }
 
-  async getSensitivity(): Promise<Sensitivity> {
-    const v = await this.get(KEY_SENSITIVITY, 'moderate');
-    if (v === 'mild' || v === 'severe' || v === 'moderate') {
-      return v;
-    }
-    return 'moderate';
-  }
-
-  async setSensitivity(s: Sensitivity): Promise<void> {
-    await this.put(KEY_SENSITIVITY, s);
-  }
-
   async getTheme(): Promise<ThemeMode> {
     const v = await this.get(KEY_THEME, 'auto');
     if (v === 'dark' || v === 'light' || v === 'auto') {
@@ -78,6 +66,24 @@ export class SettingsRepository {
 
   async setTheme(t: ThemeMode): Promise<void> {
     await this.put(KEY_THEME, t);
+  }
+
+  /** 握持自动暂停开关：检测中手机被拿起自动暂停，放回 3 秒后恢复 */
+  async getHoldPause(): Promise<boolean> {
+    return (await this.get(KEY_HOLD_PAUSE, 'false')) === 'true';
+  }
+
+  async setHoldPause(on: boolean): Promise<void> {
+    await this.put(KEY_HOLD_PAUSE, on ? 'true' : 'false');
+  }
+
+  /** 首次启动隐私政策弹窗：用户是否已同意（收集位置等个人信息前必须取得同意） */
+  async isPrivacyAgreed(): Promise<boolean> {
+    return (await this.get(KEY_PRIVACY_AGREED, 'false')) === 'true';
+  }
+
+  async setPrivacyAgreed(agreed: boolean): Promise<void> {
+    await this.put(KEY_PRIVACY_AGREED, agreed ? 'true' : 'false');
   }
 
   /**

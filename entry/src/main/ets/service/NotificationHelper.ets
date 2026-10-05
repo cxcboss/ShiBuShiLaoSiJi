@@ -16,9 +16,38 @@ export class NotificationHelper {
   /** 已发布的文案，仅在变化时重新 publish，避免无意义刷新 */
   private lastText: string = '';
   private agent: WantAgent | undefined = undefined;
+  /** 本次运行内是否已请求过通知授权：requestEnableNotification 只主动弹一次 */
+  private enableRequested: boolean = false;
 
   static getInstance(): NotificationHelper {
     return NotificationHelper.instance;
+  }
+
+  /**
+   * 首次检测时引导开启通知授权：应用通知默认关闭，不申请则检测中常驻通知
+   * 永远发不出来。仅弹一次系统授权框；用户拒绝或此前已永久拒绝时静默跳过，
+   * 不阻塞检测流程。
+   */
+  private async ensureEnabled(): Promise<boolean> {
+    try {
+      if (await notificationManager.isNotificationEnabled()) {
+        return true;
+      }
+      if (this.enableRequested) {
+        return false;
+      }
+      this.enableRequested = true;
+      const ctx = GlobalContext.getInstance().getContext();
+      if (ctx === undefined) {
+        return false;
+      }
+      await notificationManager.requestEnableNotification(ctx);
+      return await notificationManager.isNotificationEnabled();
+    } catch (e) {
+      // 用户拒绝（1600004）或调用条件不满足时都会抛错，按未授权处理
+      hilog.warn(DOMAIN, TAG, 'ensureEnabled failed: %{public}s', JSON.stringify(e));
+      return false;
+    }
   }
 
   /** 发布或更新检测中通知（文案未变化时跳过） */
@@ -27,7 +56,7 @@ export class NotificationHelper {
       return;
     }
     try {
-      const enabled: boolean = await notificationManager.isNotificationEnabled();
+      const enabled: boolean = await this.ensureEnabled();
       if (!enabled) {
         return;
       }

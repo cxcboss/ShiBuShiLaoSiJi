@@ -4,6 +4,15 @@
     "type": "entry",
     "description": "$string:module_desc",
     "mainElement": "EntryAbility",
+    // Map Kit（花瓣地图）认证：client_id 取自 AGC 该应用的 APP ID（6917613457094391932）。
+    // 配套 SHA256 证书指纹已在 AGC 登记两枚（AGC 托管调试证书 + 本机签名证书），
+    // 数据处理位置已设为中国（默认）。未配置时瓦片请求 403 "no map permission"。
+    "metadata": [
+      {
+        "name": "client_id",
+        "value": "6917613457094391932"
+      }
+    ],
     "deviceTypes": [
       "phone",
       "tablet"
@@ -16,7 +25,7 @@
         "name": "EntryAbility",
         "srcEntry": "./ets/entryability/EntryAbility.ets",
         "description": "$string:EntryAbility_desc",
-        "icon": "$media:icon",
+        "icon": "$media:layered_image",
         "label": "$string:EntryAbility_label",
         "startWindowIcon": "$media:startIcon",
         "startWindowBackground": "$color:start_window_background",
@@ -36,20 +45,9 @@
         ]
       }
     ],
-    "requestPermissions": [
-      {
+    "requestPermissions": [      {
         "name": "ohos.permission.ACCELEROMETER",
         "reason": "$string:reason_accelerometer",
-        "usedScene": {
-          "abilities": [
-            "EntryAbility"
-          ],
-          "when": "inuse"
-        }
-      },
-      {
-        "name": "ohos.permission.GYROSCOPE",
-        "reason": "$string:reason_gyroscope",
         "usedScene": {
           "abilities": [
             "EntryAbility"
@@ -100,6 +98,29 @@
       {
         "name": "ohos.permission.VIBRATE",
         "reason": "$string:reason_vibrate",
+        "usedScene": {
+          "abilities": [
+            "EntryAbility"
+          ],
+          "when": "inuse"
+        }
+      },
+      {
+        "name": "ohos.permission.INTERNET",
+        "reason": "$string:reason_internet",
+        "usedScene": {
+          "abilities": [
+            "EntryAbility"
+          ],
+          "when": "inuse"
+        }
+      },
+      {
+        // 受限开放权限（system_basic + ACL）：motion.on('holdingHandChanged') 编译期
+        // 即要求此权限（hvigor 警告），缺失时订阅必然失败、握持自动暂停功能失效。
+        // debug 自动签名会写入 ACL；上架前需在 AGC 申请受限权限并提供使用场景。
+        "name": "ohos.permission.DETECT_GESTURE",
+        "reason": "$string:reason_detect_gesture",
         "usedScene": {
           "abilities": [
             "EntryAbility"

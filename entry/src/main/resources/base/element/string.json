@@ -21,10 +21,6 @@
       "value": "用于检测急加速、急减速、急转向等驾驶行为"
     },
     {
-      "name": "reason_gyroscope",
-      "value": "用于辅助判断手机姿态，提高检测准确性"
-    },
-    {
       "name": "reason_location",
       "value": "用于记录行驶距离并绘制行驶轨迹"
     },
@@ -35,6 +31,14 @@
     {
       "name": "reason_vibrate",
       "value": "用于检测到不良驾驶事件时振动提醒"
+    },
+    {
+      "name": "reason_detect_gesture",
+      "value": "用于检测手机是否被握持，握持时自动暂停驾驶检测"
+    },
+    {
+      "name": "reason_internet",
+      "value": "用于在行程报告中加载并显示行驶轨迹地图"
     }
   ]
 }

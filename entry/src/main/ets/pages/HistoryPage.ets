@@ -1,25 +1,12 @@
 import { ReportRepository } from '../service/ReportRepository';
 import { DrivingReport } from '../model/DrivingReport';
-import { levelOf, sensitivityLabel } from '../model/DetectionConfig';
 import { TimeUtil } from '../util/TimeUtil';
 import { TAB_BAR_CLEARANCE_VP, ThemeState } from '../util/ThemeState';
-import {
-  DeleteIconOptions,
-  FullDeleteOptions,
-  HdsListItem,
-  HdsListItemCardOptions,
-  HdsSnackBar,
-  HdsSwipeActionOptions,
-  PrefixCustomBuilder,
-  SuffixArrow,
-} from '@kit.UIDesignKit';
+import { HdsSnackBar } from '@kit.UIDesignKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'HistoryPage';
-
-/** 分数徽章底色不透明度：等级色太实会抢正文 */
-const BADGE_ALPHA: number = 0.12;
 
 @ComponentV2
 export struct HistoryPage {
@@ -74,33 +61,13 @@ export struct HistoryPage {
     }
   }
 
-  /** 路况/低速豁免数：一次遍历只统计一次（此前同一模板里调用两遍） */
-  private exemptCount(r: DrivingReport): number {
-    let n: number = 0;
-    for (const e of r.events) {
-      if (e.excluded) {
-        n++;
-      }
-    }
-    return n;
-  }
-
   /**
-   * 摘要行。此前第二行输出的是 "日期 + 时长"，时长被读成时刻
-   * （用户反馈"2026-08-29 00:02"这种不可能的时间）：
-   * 现在时刻归时刻（HH:mm），时长显式带"时长"前缀，两者分行不再混排。
+   * 数据行：时长 / 里程 / 事件数。
+   * 时长用中文表述（"37分16秒"），mm:ss 在列表里会被读成时刻（此前用户反馈过）；
+   * 路况豁免数不再展示——它是引擎内部的口径说明，用户只关心"记了几笔"。
    */
   private summaryLine(r: DrivingReport): string {
-    const exempt: number = this.exemptCount(r);
-    const parts: string[] = [`${(r.distanceM / 1000).toFixed(1)} km`, `事件 ${r.events.length}`];
-    if (exempt > 0) {
-      parts.push(`路况豁免 ${exempt}`);
-    }
-    return parts.join(' · ');
-  }
-
-  private timeLine(r: DrivingReport): string {
-    return `${r.date} ${TimeUtil.formatTime(r.startTime)} · 时长 ${TimeUtil.formatDuration(r.durationSec)}`;
+    return `${TimeUtil.formatDurationCn(r.durationSec)} · ${(r.distanceM / 1000).toFixed(1)} km · 事件 ${r.events.length}`;
   }
 
   build() {
@@ -135,99 +102,151 @@ export struct HistoryPage {
         .transition(TransitionEffect.OPACITY.animation({ duration: 300 }))
       } else {
         List({ space: 12, scroller: this.scroller }) {
+          // 首部占位撑出状态栏净空：视口穿透到屏幕顶，滚到顶时第一张卡停在状态栏下方
+          ListItem() {
+            Row()
+              .width('100%')
+              .height(this.sys.topInsetVp(this.getUIContext()) + 8)
+          }
+
           ForEach(this.reports, (r: DrivingReport) => {
-            HdsListItem({
-              hdsListItemCard: this.cardOptions(r),
-              swipeActionOptions: this.swipeOptions(r),
+            ListItem() {
+              this.tripCard(r)
+            }
+            .transition(TransitionEffect.OPACITY.animation({ duration: 250 }))
+            .swipeAction({
+              end: {
+                builder: (): void => {
+                  this.deleteButton(r)
+                },
+                actionAreaDistance: 96,
+                onAction: (): void => {
+                  this.removeReport(r);
+                },
+              }
             })
           }, (r: DrivingReport) => `${r.id}`)
+
+          // 尾部占位撑出悬浮底栏净空：List 的 padding 会内缩滚动视口（卡片在
+          // 底栏上方就被裁掉），改用占位让卡片滚动时从底栏下方穿过，
+          // 滚到底时最后一张完整停在底栏上方（高度已扣除列表 12vp 间距）。
+          ListItem() {
+            Row()
+              .width('100%')
+              .height(TAB_BAR_CLEARANCE_VP - 12 + this.sys.bottomInsetVp(this.getUIContext()))
+          }
         }
         .width('100%')
         .layoutWeight(1)
-        .scrollBar(BarState.Auto)
-        .edgeEffect(EdgeEffect.Spring)
-        // 底部留出足够空间让最后一项完全可见于悬浮底栏上方
-        // barFloatingStyle barBottomMargin=28 + 底栏高度≈64 = 约 92px，再加一点余量
-        .padding({
-          left: 16, right: 16, top: 8,
-          bottom: TAB_BAR_CLEARANCE_VP + this.sys.bottomInsetVp(this.getUIContext()),
-        })
+        .scrollBar(BarState.Off)
+        .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
+        // 视口穿透到屏幕上下边缘：卡片滚动时从状态栏与悬浮底栏下方穿过
+        .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+        .padding({ left: 16, right: 16 })
       }
     }
     .width('100%')
     .height('100%')
   }
 
-  /** HDS 列表项：首项自定义分数徽章，正文走主/副/描述三档，尾部标准箭头 */
-  private cardOptions(r: DrivingReport): HdsListItemCardOptions {
-    const opts: HdsListItemCardOptions = {
-      prefixItem: new PrefixCustomBuilder((): void => {
-        this.scoreBadge(r);
-      }),
-      textItem: {
-        primaryText: { text: `${r.level} · ${sensitivityLabel(r.sensitivity)}` },
-        secondaryText: { text: this.timeLine(r) },
-        description: { text: this.summaryLine(r) },
-      },
-      suffixItem: new SuffixArrow({ color: $r('app.color.font_quaternary') }),
-      cardId: `${r.id}`,
-      cardBackgroundColor: $r('app.color.card_bg'),
-      cardBorderRadius: 16,
-      onClick: (): void => {
-        this.onShowReport(r);
-      },
-    };
-    return opts;
-  }
-
   /**
-   * HDS 标准滑动删除：图标态删除 + 全程滑动直删，
-   * 替代此前手写的红底"删除"文本（不符合鸿蒙 7 的列表交互，也没有触感反馈）。
+   * 行程卡片（用户反馈旧版"数字+小字散在卡片边缘"非常糟糕，重做）：
+   * - 左侧 70vp 评分块：分数加粗居中 + 等级小字，垫中性灰底成为视觉锚点
+   *   （评分是核心信息放最显眼处；按需求暂不上等级色，仅中性灰）
+   * - 中间竖分隔线隔开评分与行程事实：时间 + 中文时长/里程/事件
+   * - 按压态由 stateStyles 管理，触摸 Down/Up 全生命周期交给框架
    */
-  private swipeOptions(r: DrivingReport): HdsSwipeActionOptions {
-    const del: DeleteIconOptions = {
-      backgroundColor: '#F44336',
-      iconOptions: { accessibilityText: '删除该报告' },
-      onAction: (): void => {
-        this.removeReport(r);
+  @Builder
+  tripCard(r: DrivingReport) {
+    Row({ space: 14 }) {
+      Column({ space: 2 }) {
+        Text(`${Math.round(r.finalScore)}`)
+          .fontSize(30)
+          .fontWeight(FontWeight.Bold)
+          .fontColor($r('app.color.font_primary'))
+          .maxLines(1)
+          .accessibilityText(`${Math.round(r.finalScore)} 分`)
+        Text(r.level)
+          .fontSize(11)
+          .fontColor($r('app.color.font_secondary'))
+          .maxLines(1)
+      }
+      .width(70)
+      .height(70)
+      .justifyContent(FlexAlign.Center)
+      .backgroundColor($r('app.color.track_bg'))
+      .borderRadius(16)
+
+      Divider()
+        .vertical(true)
+        .height(40)
+        .strokeWidth(1)
+        .color($r('app.color.divider_color'))
+        .accessibilityLevel('no')
+
+      Column({ space: 5 }) {
+        Text(TimeUtil.formatHistoryTime(r.startTime))
+          .fontSize(16)
+          .fontWeight(FontWeight.Medium)
+          .fontColor($r('app.color.font_primary'))
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text(this.summaryLine(r))
+          .fontSize(13)
+          .fontColor($r('app.color.font_tertiary'))
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+
+      SymbolGlyph($r('sys.symbol.chevron_right'))
+        .fontSize(14)
+        .fontColor([$r('app.color.font_quaternary')])
+        .accessibilityLevel('no')
+    }
+    .width('100%')
+    .padding(14)
+    .backgroundColor($r('app.color.card_bg'))
+    .borderRadius(16)
+    .alignItems(VerticalAlign.Center)
+    .stateStyles({
+      normal: {
+        .opacity(1)
       },
-    };
-    const full: FullDeleteOptions = {
-      isFullDelete: true,
-      enableVibration: true,
-      onFullDeleteAction: (): void => {
-        this.removeReport(r);
+      pressed: {
+        .opacity(0.75)
       },
-    };
-    const opts: HdsSwipeActionOptions = {
-      deleteIconOptions: del,
-      fullDeleteOptions: full,
-    };
-    return opts;
+    })
+    .animation({ duration: 150, curve: Curve.EaseOut })
+    .onClick(() => this.onShowReport(r))
   }
 
-  /** 等级色分数徽章 */
+  /** 滑动露出的删除按钮：红底垃圾桶，点击或滑过 actionAreaDistance 触发删除 */
   @Builder
-  scoreBadge(r: DrivingReport) {
-    Stack({ alignContent: Alignment.Center }) {
-      Circle()
-        .width(44)
-        .height(44)
-        .fill(levelOf(r.finalScore).color)
-        .opacity(BADGE_ALPHA)
-      Text(`${r.finalScore}`)
-        .fontSize(18)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(levelOf(r.finalScore).color)
-        .accessibilityText(`${r.finalScore} 分`)
+  deleteButton(r: DrivingReport) {
+    Row() {
+      SymbolGlyph($r('sys.symbol.trash'))
+        .fontSize(22)
+        .fontColor(['#FFFFFF'])
+        .accessibilityLevel('no')
     }
-    .width(44)
-    .height(44)
+    .width(72)
+    .height('100%')
+    .padding({ left: 12 })
+    .margin({ left: 4 })
+    .justifyContent(FlexAlign.Center)
+    .backgroundColor('#F44336')
+    .borderRadius(16)
+    .accessibilityText(`删除 ${TimeUtil.formatHistoryTime(r.startTime)} 的报告`)
+    .onClick(() => this.removeReport(r))
   }
 
   private async removeReport(r: DrivingReport): Promise<void> {
     await ReportRepository.getInstance().removeById(r.id);
-    this.reports = this.reports.filter((item: DrivingReport): boolean => item.id !== r.id);
+    this.getUIContext().animateTo({ duration: 250, curve: Curve.EaseOut }, () => {
+      this.reports = this.reports.filter((item: DrivingReport): boolean => item.id !== r.id);
+    });
     // 官方 HdsSnackBar：提供撤销入口，防止误删
     const snackBar = new HdsSnackBar(this.getUIContext());
     snackBar.show({}, { title: '已删除该条记录' }, {

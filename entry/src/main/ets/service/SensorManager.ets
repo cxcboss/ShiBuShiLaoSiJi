@@ -22,7 +22,6 @@ export class SensorManager {
   private static instance: SensorManager = new SensorManager();
   private linearOn: boolean = false;
   private accelOn: boolean = false;
-  private gyroOn: boolean = false;
 
   static getInstance(): SensorManager {
     return SensorManager.instance;
@@ -82,36 +81,10 @@ export class SensorManager {
     this.accelOn = false;
   }
 
-  /** 陀螺仪，50ms 采样 */
-  startGyro(cb: (v: Vec3) => void): void {
-    if (this.gyroOn) {
-      return;
-    }
-    try {
-      sensor.on(sensor.SensorId.GYROSCOPE, (d: sensor.GyroscopeResponse) => {
-        cb({ x: d.x, y: d.y, z: d.z, ts: Date.now() });
-      }, { interval: 50000000 });
-      this.gyroOn = true;
-    } catch (e) {
-      hilog.error(DOMAIN, TAG, 'startGyro failed: %{public}s', JSON.stringify(e));
-    }
-  }
-
-  stopGyro(): void {
-    if (!this.gyroOn) {
-      return;
-    }
-    try {
-      sensor.off(sensor.SensorId.GYROSCOPE);
-    } catch (e) {
-      hilog.error(DOMAIN, TAG, 'stopGyro failed: %{public}s', JSON.stringify(e));
-    }
-    this.gyroOn = false;
-  }
+  // 陀螺仪订阅已移除：从未启用，且 GYROSCOPE 权限已随权限清理一并删除（上架要求权限与功能对应）。
 
   stopAll(): void {
     this.stopLinear();
     this.stopAccel();
-    this.stopGyro();
   }
 }

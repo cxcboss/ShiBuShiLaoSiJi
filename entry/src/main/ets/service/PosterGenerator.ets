@@ -1,5 +1,4 @@
 import { DrivingReport } from '../model/DrivingReport';
-import { sensitivityLabel } from '../model/DetectionConfig';
 import { TimeUtil } from '../util/TimeUtil';
 
 export interface PosterData {
@@ -11,7 +10,6 @@ export interface PosterData {
   duration: string;
   distanceKm: string;
   eventSummary: string;
-  sensitivityName: string;
   minorCount: number;
   severeCount: number;
   exemptCount: number;
@@ -70,7 +68,6 @@ export class PosterGenerator {
       duration: this.formatDuration(report.durationSec),
       distanceKm: distKm >= 0.1 ? distKm.toFixed(1) : '<0.1',
       eventSummary: events.length.toString(),
-      sensitivityName: sensitivityLabel(report.sensitivity),
       minorCount: minorCount,
       severeCount: severeCount,
       exemptCount: exemptCount,
@@ -153,16 +150,15 @@ export class PosterGenerator {
     const slogan: string = this.truncate(ctx, `「${data.slogan}」`, cardW - 40);
     ctx.fillText(slogan, w / 2, ty + 24);
 
-    // ── 数据 4 卡（统一圆角 14） ──
+    // ── 数据 3 卡（统一圆角 14） ──
     const gy: number = 196;
     const gh: number = 46;
     const gap: number = 10;
-    const cellW: number = (cardW - gap * 3) / 4;
+    const cellW: number = (cardW - gap * 2) / 3;
     const cells: Array<[string, string, string, string]> = [
       [`${data.distanceKm}`, 'km 里程', DUO_BLUE, DUO_BLUE_D],
       [data.duration, '时长', DUO_ORANGE, DUO_ORANGE_D],
       [data.eventSummary, '事件', DUO_PURPLE, DUO_PURPLE_D],
-      [data.sensitivityName, '灵敏度', DUO_RED, DUO_RED_D],
     ];
     for (let i = 0; i < cells.length; i++) {
       const x: number = cardX + i * (cellW + gap);
